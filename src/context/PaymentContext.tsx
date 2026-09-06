@@ -99,8 +99,8 @@ function loadLocalClients(): Client[] {
     console.error('Error in auto-reconstructing clients:', e);
   }
 
-  localStorage.setItem(LOCAL_CLIENTS_KEY, JSON.stringify([]));
-  return [];
+  saveLocalClients(initialClients);
+  return initialClients;
 }
 
 function saveLocalClients(clients: Client[]) {
@@ -114,12 +114,15 @@ function saveLocalClients(clients: Client[]) {
 function loadLocalPayments(): Payment[] {
   try {
     const raw = localStorage.getItem(LOCAL_PAYMENTS_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed: Payment[] = JSON.parse(raw);
+      if (parsed.length > 0) return parsed;
+    }
   } catch (e) {
     console.error('Error loading local payments:', e);
   }
-  localStorage.setItem(LOCAL_PAYMENTS_KEY, JSON.stringify([]));
-  return [];
+  saveLocalPayments(initialPayments);
+  return initialPayments;
 }
 
 function saveLocalPayments(payments: Payment[]) {
