@@ -52,6 +52,7 @@ export interface Payment {
   business: string;
   service: ServiceType;
   paymentType: PaymentType;
+  billingMonth?: string;
   totalAmount: number;
   received: number;
   remaining: number;

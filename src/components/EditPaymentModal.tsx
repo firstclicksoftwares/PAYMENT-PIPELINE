@@ -1,35 +1,29 @@
 import React, { useState } from 'react';
 import { usePaymentData } from '../context/PaymentContext';
 import { formatCurrency, getClientDisplayName } from '../data';
-import type { PaymentMethod, PaymentType, PaymentStatus } from '../types';
+import type { Payment, PaymentMethod, PaymentType, PaymentStatus } from '../types';
 
 interface Props {
+  payment: Payment;
   onClose: () => void;
   onSuccess: (msg: string) => void;
-  initialClientId?: string;
-  initialPaymentType?: PaymentType;
-  onAddClient?: () => void;
 }
 
-export default function RecordPaymentModal({ onClose, onSuccess, initialClientId, initialPaymentType, onAddClient }: Props) {
-  const { clients, recordPayment } = usePaymentData();
+export default function EditPaymentModal({ payment, onClose, onSuccess }: Props) {
+  const { updatePayment } = usePaymentData();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const defaultClientId = initialClientId || clients[0]?.id || '';
-  const defaultClient = clients.find(c => c.id === defaultClientId);
-  const defaultType: PaymentType = initialPaymentType || (defaultClient?.service === 'social_media' ? 'social_media' : 'website_onetime');
-
   const [form, setForm] = useState({
-    clientId: defaultClientId,
-    paymentType: defaultType,
-    totalAmount: defaultClient ? (defaultType === 'social_media' ? (defaultClient.socialAmount || 0).toString() : defaultType === 'website_maintenance' ? (defaultClient.maintenanceAmount || 0).toString() : (defaultClient.websiteTotal || defaultClient.totalDue || 0).toString()) : '',
-    received: '',
-    date: new Date().toISOString().split('T')[0],
-    dueDate: defaultClient ? (defaultType === 'social_media' ? (defaultClient.socialNextDue || '') : defaultType === 'website_maintenance' ? (defaultClient.maintenanceNextDue || '') : (defaultClient.websiteDueDate || '')) : '',
-    method: 'upi' as PaymentMethod,
-    transactionId: '',
-    notes: '',
+    paymentType: payment.paymentType,
+    totalAmount: payment.totalAmount ? payment.totalAmount.toString() : '',
+    received: payment.received ? payment.received.toString() : '0',
+    date: payment.date || new Date().toISOString().split('T')[0],
+    dueDate: payment.dueDate || '',
+    method: (payment.method || 'upi') as PaymentMethod,
+    transactionId: payment.transactionId || '',
+    notes: payment.notes || '',
+    status: payment.status || 'due',
   });
 
   const received = parseFloat(form.received) || 0;
@@ -38,78 +32,20 @@ export default function RecordPaymentModal({ onClose, onSuccess, initialClientId
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
 
-  const selectedClient = clients.find(c => c.id === form.clientId);
-
-  const getDetailsForType = (client: typeof clients[0] | undefined, type: PaymentType) => {
-    if (!client) return { total: '', dueDate: '' };
-    if (type === 'social_media') {
-      return {
-        total: (client.socialAmount || 0).toString(),
-        dueDate: client.socialNextDue || '',
-      };
-    }
-    if (type === 'website_maintenance') {
-      return {
-        total: (client.maintenanceAmount || 0).toString(),
-        dueDate: client.maintenanceNextDue || '',
-      };
-    }
-    return {
-      total: (client.websiteTotal || client.totalDue || 0).toString(),
-      dueDate: client.websiteDueDate || '',
-    };
-  };
-
-  const handleClientChange = (cId: string) => {
-    const client = clients.find(c => c.id === cId);
-    const autoType: PaymentType = client?.service === 'social_media' ? 'social_media' : 'website_onetime';
-    const { total, dueDate } = getDetailsForType(client, autoType);
-
-    setForm(f => ({
-      ...f,
-      clientId: cId,
-      paymentType: autoType,
-      totalAmount: total,
-      dueDate: dueDate,
-    }));
-  };
-
-  const handleTypeChange = (type: PaymentType) => {
-    const client = clients.find(c => c.id === form.clientId);
-    const { total, dueDate } = getDetailsForType(client, type);
-
-    setForm(f => ({
-      ...f,
-      paymentType: type,
-      totalAmount: total,
-      dueDate: dueDate,
-    }));
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.clientId && clients.length > 0) {
-      setError('Please select a client');
-      return;
-    }
-
     setSubmitting(true);
     setError(null);
 
     try {
-      const client = clients.find(c => c.id === form.clientId);
-      const status: PaymentStatus =
-        remaining === 0 && received > 0
+      const calculatedStatus: PaymentStatus =
+        remaining === 0 && total > 0
           ? 'paid'
           : received > 0
           ? 'partially_paid'
-          : 'due';
+          : form.status === 'overdue' ? 'overdue' : 'due';
 
-      await recordPayment({
-        clientId: form.clientId,
-        clientName: getClientDisplayName(client?.name || 'Walk-in Client', client?.business),
-        business: client?.business || 'First Click Client',
-        service: client?.service || 'website',
+      await updatePayment(payment.id, {
         paymentType: form.paymentType,
         totalAmount: total,
         received,
@@ -118,15 +54,15 @@ export default function RecordPaymentModal({ onClose, onSuccess, initialClientId
         dueDate: form.dueDate,
         method: form.method,
         transactionId: form.transactionId,
-        status,
         notes: form.notes,
+        status: calculatedStatus,
       });
 
-      onSuccess(`Payment of ${formatCurrency(received)} recorded in Supabase!`);
+      onSuccess(`Payment record updated successfully!`);
       onClose();
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'Failed to record payment');
+      setError(err.message || 'Failed to update payment record');
     } finally {
       setSubmitting(false);
     }
@@ -139,8 +75,10 @@ export default function RecordPaymentModal({ onClose, onSuccess, initialClientId
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.06]">
           <div>
-            <h2 className="text-lg font-semibold text-white">Record Payment</h2>
-            <p className="text-xs text-slate-500 mt-0.5">Logs live transaction into Supabase Realtime DB</p>
+            <h2 className="text-lg font-semibold text-white">✏ Edit Payment Record</h2>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Client: <span className="text-violet-300 font-medium">{getClientDisplayName(payment.clientName, payment.business)}</span>
+            </p>
           </div>
           <button onClick={onClose} className="text-slate-500 hover:text-white text-xl">✕</button>
         </div>
@@ -152,38 +90,6 @@ export default function RecordPaymentModal({ onClose, onSuccess, initialClientId
         )}
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5 max-h-[80vh] overflow-y-auto">
-          {/* Client */}
-          <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">Client *</label>
-            <select
-              value={form.clientId}
-              onChange={e => handleClientChange(e.target.value)}
-              required
-              className="w-full px-3 py-2.5 bg-white/[0.05] border border-white/[0.08] rounded-lg text-sm text-slate-200 focus:outline-none focus:border-violet-500/50"
-            >
-              <option value="" className="bg-[#12121f]">Select client...</option>
-              {clients.map(c => (
-                <option key={c.id} value={c.id} className="bg-[#12121f]">
-                  {getClientDisplayName(c.name, c.business)}
-                </option>
-              ))}
-            </select>
-            {clients.length === 0 && (
-              <div className="mt-2.5 p-3 bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs rounded-lg flex items-center justify-between">
-                <span>No clients registered yet.</span>
-                {onAddClient && (
-                  <button
-                    type="button"
-                    onClick={() => { onClose(); onAddClient(); }}
-                    className="ml-2 px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded text-xs font-semibold shrink-0"
-                  >
-                    + Add Client
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-
           {/* Payment Type */}
           <div>
             <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">Payment Type</label>
@@ -196,7 +102,7 @@ export default function RecordPaymentModal({ onClose, onSuccess, initialClientId
                 <button
                   key={opt.value}
                   type="button"
-                  onClick={() => handleTypeChange(opt.value as PaymentType)}
+                  onClick={() => set('paymentType', opt.value)}
                   className={`py-2.5 px-3 rounded-lg text-xs font-medium transition-colors ${form.paymentType === opt.value ? 'bg-violet-600 text-white' : 'bg-white/[0.05] text-slate-400 hover:bg-white/[0.08]'}`}
                 >
                   {opt.label}
@@ -218,19 +124,18 @@ export default function RecordPaymentModal({ onClose, onSuccess, initialClientId
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">Amount Received (₹) *</label>
+              <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">Amount Received (₹)</label>
               <input
                 type="number"
                 value={form.received}
                 onChange={e => set('received', e.target.value)}
                 placeholder="0"
-                required
                 className="w-full px-3 py-2.5 bg-white/[0.05] border border-white/[0.08] rounded-lg text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-violet-500/50 font-mono-data"
               />
             </div>
           </div>
 
-          {/* Live Calculation */}
+          {/* Live Progress Box */}
           {(total > 0 || received > 0) && (
             <div className="bg-gradient-to-r from-violet-600/10 to-transparent border border-violet-500/20 rounded-xl p-4">
               <div className="grid grid-cols-3 gap-4 text-center">
@@ -270,7 +175,7 @@ export default function RecordPaymentModal({ onClose, onSuccess, initialClientId
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">Next Due Date</label>
+              <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">Due Date</label>
               <input
                 type="date"
                 value={form.dueDate}
@@ -280,11 +185,38 @@ export default function RecordPaymentModal({ onClose, onSuccess, initialClientId
             </div>
           </div>
 
-          {/* Method */}
+          {/* Status Override */}
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">Payment Status</label>
+            <div className="grid grid-cols-4 gap-2">
+              {[
+                { value: 'due', label: 'Due' },
+                { value: 'partially_paid', label: 'Partial' },
+                { value: 'paid', label: 'Paid' },
+                { value: 'overdue', label: 'Overdue' },
+              ].map(st => (
+                <button
+                  key={st.value}
+                  type="button"
+                  onClick={() => set('status', st.value)}
+                  className={`py-2 px-2.5 rounded-lg text-xs font-medium transition-colors ${form.status === st.value ? 'bg-violet-600 text-white' : 'bg-white/[0.05] text-slate-400 hover:bg-white/[0.08]'}`}
+                >
+                  {st.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Payment Method */}
           <div>
             <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">Payment Method</label>
             <div className="grid grid-cols-4 gap-2">
-              {[['upi', 'UPI'], ['bank_transfer', 'Bank Transfer'], ['cash', 'Cash'], ['other', 'Other']].map(([v, l]) => (
+              {[
+                ['upi', 'UPI'],
+                ['bank_transfer', 'Bank Transfer'],
+                ['cash', 'Cash'],
+                ['other', 'Other'],
+              ].map(([v, l]) => (
                 <button
                   key={v}
                   type="button"
@@ -299,7 +231,7 @@ export default function RecordPaymentModal({ onClose, onSuccess, initialClientId
 
           {/* Txn ID */}
           <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">Transaction ID (optional)</label>
+            <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">Transaction ID</label>
             <input
               type="text"
               value={form.transactionId}
@@ -311,7 +243,7 @@ export default function RecordPaymentModal({ onClose, onSuccess, initialClientId
 
           {/* Notes */}
           <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">Notes (optional)</label>
+            <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">Notes</label>
             <textarea
               value={form.notes}
               onChange={e => set('notes', e.target.value)}
@@ -331,7 +263,7 @@ export default function RecordPaymentModal({ onClose, onSuccess, initialClientId
               disabled={submitting}
               className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white text-sm font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
             >
-              {submitting ? 'Saving to Supabase...' : 'Record Payment'}
+              {submitting ? 'Saving...' : '✓ Save Changes'}
             </button>
           </div>
         </form>

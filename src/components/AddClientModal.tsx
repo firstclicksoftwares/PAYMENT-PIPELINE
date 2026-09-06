@@ -1,16 +1,20 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
+import { usePaymentData } from '../context/PaymentContext';
+import type { ServiceType, PaymentStatus, PipelineStage } from '../types';
 
 interface Props {
   onClose: () => void;
   onSuccess: (msg: string) => void;
 }
 
-type ServiceType = 'website' | 'social_media' | 'both';
-
 const STEPS = ['Client Details', 'Select Service', 'Payment Structure', 'Review'];
 
 export default function AddClientModal({ onClose, onSuccess }: Props) {
+  const { addClient } = usePaymentData();
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState(0);
+
   const [form, setForm] = useState({
     name: '',
     business: '',
@@ -34,30 +38,133 @@ export default function AddClientModal({ onClose, onSuccess }: Props) {
 
   const set = (k: string, v: string | boolean) => setForm(f => ({ ...f, [k]: v }));
 
-  const websiteRemaining = (parseFloat(form.websiteTotal) || 0) - (parseFloat(form.websiteAdvance) || 0);
+  const websiteTotal = parseFloat(form.websiteTotal) || 0;
+  const websiteAdvance = parseFloat(form.websiteAdvance) || 0;
+  const websiteRemaining = Math.max(0, websiteTotal - websiteAdvance);
+
+  const socialAmount = parseFloat(form.socialAmount) || 0;
+  const socialAdvance = parseFloat(form.socialAdvance) || 0;
+  const socialOutstanding = Math.max(0, socialAmount - socialAdvance);
+
   const isWebsite = form.service === 'website' || form.service === 'both';
   const isSocial = form.service === 'social_media' || form.service === 'both';
 
   const canNext = [
-    form.name && form.business && form.phone && form.email,
+    form.name.trim() !== '' && form.business.trim() !== '',
     form.service !== '',
     true,
     true,
   ][step];
 
-  const handleSubmit = () => {
-    onSuccess(`Client "${form.name}" added successfully`);
-    onClose();
+  const handleSubmit = async () => {
+    if (!form.service) return;
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      const maintenanceAmount = parseFloat(form.maintenanceAmount) || 0;
+
+      // Contract value & totals
+      let totalContractValue = 0;
+      let totalPaid = 0;
+
+      if (isWebsite) {
+        totalContractValue += websiteTotal;
+        totalPaid += websiteAdvance;
+      }
+      if (isSocial) {
+        totalContractValue += socialAmount;
+        totalPaid += socialAdvance;
+      }
+
+      const totalDue = Math.max(0, totalContractValue - totalPaid);
+
+      const websiteStatus: PaymentStatus =
+        websiteRemaining === 0 && websiteTotal > 0
+          ? 'paid'
+          : websiteAdvance > 0
+          ? 'partially_paid'
+          : 'due';
+
+      const websiteStage: PipelineStage =
+        websiteTotal > 0 && websiteAdvance >= websiteTotal
+          ? 'fully_paid'
+          : websiteAdvance > 0
+          ? 'advance_received'
+          : 'lead';
+
+      const socialStatus: PaymentStatus =
+        socialOutstanding === 0 && socialAmount > 0
+          ? 'paid'
+          : socialAdvance > 0
+          ? 'partially_paid'
+          : 'due';
+
+      const overallStatus: PaymentStatus =
+        totalDue === 0 && totalContractValue > 0
+          ? 'paid'
+          : totalPaid > 0
+          ? 'partially_paid'
+          : 'due';
+
+      await addClient({
+        name: form.name.trim(),
+        business: form.business.trim(),
+        phone: form.phone.trim(),
+        email: form.email.trim(),
+        service: form.service as ServiceType,
+
+        // Website
+        websiteProject: isWebsite ? form.websiteProject || 'Website Redesign' : undefined,
+        websiteTotal: isWebsite ? websiteTotal : 0,
+        websiteAdvance: isWebsite ? websiteAdvance : 0,
+        websiteDueDate: isWebsite ? form.websiteDueDate : undefined,
+        websiteStatus: isWebsite ? websiteStatus : undefined,
+        websiteStage: isWebsite ? websiteStage : undefined,
+
+        // Maintenance
+        maintenanceEnabled: isWebsite ? form.maintenanceEnabled : false,
+        maintenanceAmount: isWebsite && form.maintenanceEnabled ? maintenanceAmount : 0,
+        maintenanceStartDate: isWebsite && form.maintenanceEnabled ? form.maintenanceStartDate : undefined,
+        maintenanceNextDue: isWebsite && form.maintenanceEnabled ? form.maintenanceStartDate : undefined,
+        maintenanceStatus: isWebsite && form.maintenanceEnabled ? 'upcoming' : undefined,
+
+        // Social
+        socialPackage: isSocial ? form.socialPackage || 'Monthly Package' : undefined,
+        socialAmount: isSocial ? socialAmount : 0,
+        socialStartDate: isSocial ? new Date().toISOString().split('T')[0] : undefined,
+        socialNextDue: isSocial ? form.socialDueDate : undefined,
+        socialAdvance: isSocial ? socialAdvance : 0,
+        socialOutstanding: isSocial ? socialOutstanding : 0,
+        socialStatus: isSocial ? socialStatus : undefined,
+
+        totalContractValue,
+        totalPaid,
+        totalDue,
+        overallStatus,
+      });
+
+      onSuccess(`Client "${form.name}" added successfully to Supabase!`);
+      onClose();
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Failed to add client. Check Supabase table.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-lg glass rounded-2xl overflow-hidden">
+      <div className="relative w-full max-w-lg glass rounded-2xl overflow-hidden border border-white/[0.08]">
         {/* Header */}
         <div className="px-6 py-4 border-b border-white/[0.06]">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold text-white">Add New Client</h2>
+            <div>
+              <h2 className="text-lg font-semibold text-white">Add New Client</h2>
+              <p className="text-xs text-slate-500">Persists directly to Supabase Realtime DB</p>
+            </div>
             <button onClick={onClose} className="text-slate-500 hover:text-white text-xl">✕</button>
           </div>
           {/* Step Indicator */}
@@ -79,6 +186,12 @@ export default function AddClientModal({ onClose, onSuccess }: Props) {
           </div>
         </div>
 
+        {error && (
+          <div className="mx-6 mt-4 p-3 bg-red-500/10 border border-red-500/20 text-red-300 text-xs rounded-lg">
+            {error}
+          </div>
+        )}
+
         <div className="p-6 max-h-[65vh] overflow-y-auto space-y-4">
           {/* Step 0: Client Details */}
           {step === 0 && (
@@ -86,20 +199,20 @@ export default function AddClientModal({ onClose, onSuccess }: Props) {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">Full Name *</label>
-                  <input value={form.name} onChange={e => set('name', e.target.value)} placeholder="Arjun Mehta" className="w-full px-3 py-2.5 bg-white/[0.05] border border-white/[0.08] rounded-lg text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-violet-500/50" />
+                  <input value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Arjun Mehta" className="w-full px-3 py-2.5 bg-white/[0.05] border border-white/[0.08] rounded-lg text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-violet-500/50" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">Business Name *</label>
-                  <input value={form.business} onChange={e => set('business', e.target.value)} placeholder="TechStar Solutions" className="w-full px-3 py-2.5 bg-white/[0.05] border border-white/[0.08] rounded-lg text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-violet-500/50" />
+                  <input value={form.business} onChange={e => set('business', e.target.value)} placeholder="e.g. TechStar Solutions" className="w-full px-3 py-2.5 bg-white/[0.05] border border-white/[0.08] rounded-lg text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-violet-500/50" />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">Phone *</label>
+                  <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">Phone</label>
                   <input value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="+91 98765 43210" className="w-full px-3 py-2.5 bg-white/[0.05] border border-white/[0.08] rounded-lg text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-violet-500/50" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">Email *</label>
+                  <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">Email</label>
                   <input type="email" value={form.email} onChange={e => set('email', e.target.value)} placeholder="client@example.com" className="w-full px-3 py-2.5 bg-white/[0.05] border border-white/[0.08] rounded-lg text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-violet-500/50" />
                 </div>
               </div>
@@ -153,8 +266,8 @@ export default function AddClientModal({ onClose, onSuccess }: Props) {
                       <input type="number" value={form.websiteAdvance} onChange={e => set('websiteAdvance', e.target.value)} placeholder="5000" className="w-full px-3 py-2.5 bg-white/[0.05] border border-white/[0.08] rounded-lg text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-violet-500/50 font-mono-data" />
                     </div>
                   </div>
-                  {(parseFloat(form.websiteTotal) > 0) && (
-                    <div className="text-xs text-amber-400 font-mono-data">Balance: ₹{websiteRemaining.toLocaleString('en-IN')}</div>
+                  {websiteTotal > 0 && (
+                    <div className="text-xs text-amber-400 font-mono-data">Balance Due: ₹{websiteRemaining.toLocaleString('en-IN')}</div>
                   )}
                   <div>
                     <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">Balance Due Date</label>
@@ -205,7 +318,8 @@ export default function AddClientModal({ onClose, onSuccess }: Props) {
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">Current Billing Due Date</label>
+                    <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wide">Next Payment Due Date</label>
+                    <p className="text-[11px] text-slate-500 mb-1.5">Jab client ki 1 month cycle complete hogi ya payment due hai vo date select karein</p>
                     <input type="date" value={form.socialDueDate} onChange={e => set('socialDueDate', e.target.value)} className="w-full px-3 py-2.5 bg-white/[0.05] border border-white/[0.08] rounded-lg text-sm text-slate-200 focus:outline-none focus:border-violet-500/50" />
                   </div>
                 </div>
@@ -216,7 +330,7 @@ export default function AddClientModal({ onClose, onSuccess }: Props) {
           {/* Step 3: Review */}
           {step === 3 && (
             <div className="space-y-4">
-              <div className="glass p-4 space-y-2 text-sm">
+              <div className="glass p-4 space-y-2 text-sm rounded-xl border border-white/[0.06]">
                 <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Client Details</div>
                 {[['Name', form.name], ['Business', form.business], ['Phone', form.phone], ['Email', form.email]].map(([l, v]) => (
                   <div key={l} className="flex justify-between">
@@ -227,14 +341,14 @@ export default function AddClientModal({ onClose, onSuccess }: Props) {
               </div>
 
               {isWebsite && (
-                <div className="glass p-4 space-y-2 text-sm">
+                <div className="glass p-4 space-y-2 text-sm rounded-xl border border-white/[0.06]">
                   <div className="text-xs font-semibold text-violet-400 uppercase tracking-wide mb-3">Website</div>
                   {[
-                    ['Project', form.websiteProject],
-                    ['Total', form.websiteTotal ? `₹${parseFloat(form.websiteTotal).toLocaleString('en-IN')}` : '—'],
-                    ['Advance', form.websiteAdvance ? `₹${parseFloat(form.websiteAdvance).toLocaleString('en-IN')}` : '—'],
+                    ['Project', form.websiteProject || 'Website Redesign'],
+                    ['Total', websiteTotal ? `₹${websiteTotal.toLocaleString('en-IN')}` : '₹0'],
+                    ['Advance', websiteAdvance ? `₹${websiteAdvance.toLocaleString('en-IN')}` : '₹0'],
                     ['Balance', `₹${websiteRemaining.toLocaleString('en-IN')}`],
-                    ...(form.maintenanceEnabled ? [['Maintenance', `₹${form.maintenanceAmount}/month`]] : []),
+                    ...(form.maintenanceEnabled ? [['Maintenance', `₹${form.maintenanceAmount || 0}/month`]] : []),
                   ].map(([l, v]) => (
                     <div key={l} className="flex justify-between">
                       <span className="text-slate-500">{l}</span>
@@ -245,12 +359,13 @@ export default function AddClientModal({ onClose, onSuccess }: Props) {
               )}
 
               {isSocial && (
-                <div className="glass p-4 space-y-2 text-sm">
+                <div className="glass p-4 space-y-2 text-sm rounded-xl border border-white/[0.06]">
                   <div className="text-xs font-semibold text-cyan-400 uppercase tracking-wide mb-3">Social Media</div>
                   {[
-                    ['Package', form.socialPackage],
-                    ['Monthly', form.socialAmount ? `₹${parseFloat(form.socialAmount).toLocaleString('en-IN')}` : '—'],
-                    ['Advance', form.socialAdvance ? `₹${parseFloat(form.socialAdvance).toLocaleString('en-IN')}` : '—'],
+                    ['Package', form.socialPackage || 'Standard'],
+                    ['Monthly', socialAmount ? `₹${socialAmount.toLocaleString('en-IN')}` : '₹0'],
+                    ['Advance', socialAdvance ? `₹${socialAdvance.toLocaleString('en-IN')}` : '₹0'],
+                    ['Outstanding', `₹${socialOutstanding.toLocaleString('en-IN')}`],
                   ].map(([l, v]) => (
                     <div key={l} className="flex justify-between">
                       <span className="text-slate-500">{l}</span>
@@ -287,9 +402,10 @@ export default function AddClientModal({ onClose, onSuccess }: Props) {
             <button
               type="button"
               onClick={handleSubmit}
-              className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-lg transition-colors"
+              disabled={submitting}
+              className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
             >
-              ✓ Create Client
+              {submitting ? 'Saving to Supabase...' : '✓ Create Client in DB'}
             </button>
           )}
         </div>

@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { payments, formatCurrency, formatDate } from '../data';
+import React, { useState } from 'react';
+import { usePaymentData } from '../context/PaymentContext';
+import { formatCurrency, formatDate, getClientDisplayName } from '../data';
 import StatusBadge from '../components/StatusBadge';
 
 const methodLabel: Record<string, string> = {
@@ -9,7 +10,14 @@ const methodLabel: Record<string, string> = {
   other: 'Other',
 };
 
-export default function PaymentHistory() {
+import type { Payment } from '../types';
+
+interface Props {
+  onEditPayment?: (payment: Payment) => void;
+}
+
+export default function PaymentHistory({ onEditPayment }: Props = {}) {
+  const { payments, deletePayment } = usePaymentData();
   const [search, setSearch] = useState('');
   const [serviceFilter, setServiceFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
@@ -30,18 +38,18 @@ export default function PaymentHistory() {
     <div className="p-6 space-y-5">
       <div>
         <h1 className="text-2xl font-semibold text-white">Payment History</h1>
-        <p className="text-sm text-slate-500 mt-0.5">{payments.length} payment records</p>
+        <p className="text-sm text-slate-500 mt-0.5">{payments.length} payment records in Realtime DB</p>
       </div>
 
       {/* Filters */}
-      <div className="glass p-4 flex flex-wrap items-center gap-3">
+      <div className="glass p-4 flex flex-wrap items-center gap-3 rounded-xl border border-white/[0.06]">
         {/* Search */}
         <div className="relative flex-1 min-w-48">
           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">🔍</span>
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search client, transaction ID..."
+            placeholder="Search client, business, txn ID..."
             className="w-full pl-9 pr-4 py-2 bg-white/[0.05] border border-white/[0.08] rounded-lg text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-violet-500/50"
           />
         </div>
@@ -87,18 +95,18 @@ export default function PaymentHistory() {
       </div>
 
       {/* Table */}
-      <div className="glass overflow-hidden">
+      <div className="glass overflow-hidden rounded-xl border border-white/[0.06]">
         <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
-          <span className="text-xs text-slate-500">{filtered.length} records</span>
+          <span className="text-xs text-slate-500 font-mono-data">{filtered.length} records</span>
           <span className="text-xs font-mono-data text-emerald-400">
-            Total Collected: {formatCurrency(filtered.reduce((s, p) => s + p.received, 0))}
+            Total Collected: {formatCurrency(filtered.reduce((s, p) => s + (p.received || 0), 0))}
           </span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-white/[0.06]">
-                {['Date', 'Client', 'Service', 'Type', 'Total', 'Received', 'Remaining', 'Method', 'Txn ID', 'Status'].map(h => (
+                {['Date', 'Client', 'Service', 'Type', 'Total', 'Received', 'Remaining', 'Method', 'Txn ID', 'Status', 'Action'].map(h => (
                   <th key={h} className="text-left text-xs font-medium text-slate-500 px-5 py-3 uppercase tracking-wide whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -108,7 +116,7 @@ export default function PaymentHistory() {
                 <tr key={p.id} className="hover:bg-white/[0.02] transition-colors">
                   <td className="px-5 py-3 text-xs text-slate-400 whitespace-nowrap">{formatDate(p.date)}</td>
                   <td className="px-5 py-3">
-                    <div className="font-medium text-white whitespace-nowrap">{p.clientName}</div>
+                    <div className="font-medium text-white whitespace-nowrap">{getClientDisplayName(p.clientName, p.business)}</div>
                     <div className="text-xs text-slate-500">{p.business}</div>
                   </td>
                   <td className="px-5 py-3">
@@ -124,14 +132,38 @@ export default function PaymentHistory() {
                   <td className="px-5 py-3 font-mono-data whitespace-nowrap">
                     <span className={p.remaining > 0 ? 'text-amber-400' : 'text-slate-600'}>{formatCurrency(p.remaining)}</span>
                   </td>
-                  <td className="px-5 py-3 text-xs text-slate-400 whitespace-nowrap">{methodLabel[p.method]}</td>
+                  <td className="px-5 py-3 text-xs text-slate-400 whitespace-nowrap">{methodLabel[p.method] || p.method}</td>
                   <td className="px-5 py-3 font-mono-data text-xs text-slate-500 whitespace-nowrap">{p.transactionId || '—'}</td>
                   <td className="px-5 py-3"><StatusBadge status={p.status} size="sm" /></td>
+                  <td className="px-5 py-3">
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => onEditPayment && onEditPayment(p)}
+                        className="text-xs px-2.5 py-1 bg-white/[0.08] hover:bg-white/[0.15] text-slate-200 border border-white/[0.1] rounded-md transition-colors font-medium whitespace-nowrap"
+                        title="Edit Payment Record"
+                      >
+                        ✏ Edit
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (confirm(`Are you sure you want to delete this payment record of ${formatCurrency(p.received)}?`)) {
+                            deletePayment(p.id);
+                          }
+                        }}
+                        className="text-xs px-2.5 py-1 bg-red-500/15 hover:bg-red-500/30 text-red-400 border border-red-500/30 rounded-md transition-colors font-medium whitespace-nowrap"
+                        title="Delete Payment Record"
+                      >
+                        🗑 Delete
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-5 py-12 text-center text-slate-600">No payments match your filters</td>
+                  <td colSpan={11} className="px-5 py-12 text-center text-slate-600">
+                    No payment records in database yet.
+                  </td>
                 </tr>
               )}
             </tbody>

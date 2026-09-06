@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { clients, payments, formatCurrency, formatDate } from '../data';
+import React, { useState } from 'react';
+import { usePaymentData } from '../context/PaymentContext';
+import { formatCurrency, formatDate, getClientDisplayName } from '../data';
 import type { Client, TimelineEvent } from '../types';
 import StatusBadge from '../components/StatusBadge';
 
@@ -25,7 +26,7 @@ function buildTimeline(client: Client): TimelineEvent[] {
     events.push({ id: 't2', date: client.createdAt, description: 'Website Development Started', status: 'done' });
   }
   if (client.websiteDeliveryDate) {
-    const delivered = new Date(client.websiteDeliveryDate) <= new Date('2026-09-06');
+    const delivered = new Date(client.websiteDeliveryDate) <= new Date();
     events.push({ id: 't3', date: client.websiteDeliveryDate, description: 'Website Delivered', status: delivered ? 'done' : 'upcoming' });
   }
   if (client.websiteTotal && client.websiteAdvance) {
@@ -43,7 +44,20 @@ function buildTimeline(client: Client): TimelineEvent[] {
   return events;
 }
 
-function ClientProfile({ client, onClose, onRecordPayment }: { client: Client; onClose: () => void; onRecordPayment: () => void }) {
+function ClientProfile({
+  client,
+  onClose,
+  onRecordPayment,
+  onEdit,
+  onDelete,
+}: {
+  client: Client;
+  onClose: () => void;
+  onRecordPayment: () => void;
+  onEdit: (client: Client) => void;
+  onDelete: (id: string) => void;
+}) {
+  const { payments } = usePaymentData();
   const timeline = buildTimeline(client);
   const clientPayments = payments.filter(p => p.clientId === client.id);
 
@@ -56,7 +70,7 @@ function ClientProfile({ client, onClose, onRecordPayment }: { client: Client; o
           <div>
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-gradient-to-br from-violet-500 to-purple-700 flex items-center justify-center text-white font-bold text-sm">
-                {client.name.charAt(0)}
+                {client.name.charAt(0).toUpperCase()}
               </div>
               <div>
                 <h2 className="text-lg font-semibold text-white">{client.name}</h2>
@@ -70,7 +84,7 @@ function ClientProfile({ client, onClose, onRecordPayment }: { client: Client; o
         <div className="p-6 space-y-6">
           {/* Info Grid */}
           <div className="grid grid-cols-2 gap-4">
-            <div className="glass p-4 space-y-3">
+            <div className="glass p-4 space-y-3 rounded-xl border border-white/[0.06]">
               <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Client Information</h3>
               <div className="space-y-2">
                 {[
@@ -86,7 +100,7 @@ function ClientProfile({ client, onClose, onRecordPayment }: { client: Client; o
                 ))}
               </div>
             </div>
-            <div className="glass p-4 space-y-3">
+            <div className="glass p-4 space-y-3 rounded-xl border border-white/[0.06]">
               <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Payment Summary</h3>
               <div className="space-y-2">
                 {[
@@ -105,8 +119,8 @@ function ClientProfile({ client, onClose, onRecordPayment }: { client: Client; o
 
           {/* Service Details */}
           {(client.service === 'website' || client.service === 'both') && (
-            <div className="glass p-4 space-y-3">
-              <h3 className="text-xs font-semibold text-violet-400 uppercase tracking-wider">Website — {client.websiteProject}</h3>
+            <div className="glass p-4 space-y-3 rounded-xl border border-white/[0.06]">
+              <h3 className="text-xs font-semibold text-violet-400 uppercase tracking-wider">Website — {client.websiteProject || 'Project'}</h3>
               <div className="grid grid-cols-3 gap-3 text-sm">
                 <div>
                   <div className="text-slate-500 text-xs">Total</div>
@@ -141,8 +155,8 @@ function ClientProfile({ client, onClose, onRecordPayment }: { client: Client; o
           )}
 
           {(client.service === 'social_media' || client.service === 'both') && (
-            <div className="glass p-4 space-y-3">
-              <h3 className="text-xs font-semibold text-cyan-400 uppercase tracking-wider">Social Media — {client.socialPackage}</h3>
+            <div className="glass p-4 space-y-3 rounded-xl border border-white/[0.06]">
+              <h3 className="text-xs font-semibold text-cyan-400 uppercase tracking-wider">Social Media — {client.socialPackage || 'Package'}</h3>
               <div className="grid grid-cols-3 gap-3 text-sm">
                 <div>
                   <div className="text-slate-500 text-xs">Monthly</div>
@@ -171,7 +185,7 @@ function ClientProfile({ client, onClose, onRecordPayment }: { client: Client; o
             <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">Payment Timeline</h3>
             <div className="relative pl-6">
               <div className="absolute left-2 top-0 bottom-0 w-px bg-white/[0.06]" />
-              {timeline.map((event, i) => (
+              {timeline.map((event) => (
                 <div key={event.id} className="relative mb-4 last:mb-0">
                   <div className={`absolute -left-4 top-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center text-[8px] font-bold
                     ${event.status === 'done' ? 'bg-emerald-500 border-emerald-400 text-white' :
@@ -183,7 +197,7 @@ function ClientProfile({ client, onClose, onRecordPayment }: { client: Client; o
                     <div className="flex items-start justify-between">
                       <div>
                         <div className="text-sm text-slate-200">{event.description}</div>
-                        {event.date && <div className="text-xs text-slate-500 mt-0.5">{event.date ? formatDate(event.date) : ''}</div>}
+                        {event.date && <div className="text-xs text-slate-500 mt-0.5">{formatDate(event.date)}</div>}
                       </div>
                       {event.amount && (
                         <div className={`text-sm font-mono-data font-medium ${event.status === 'done' ? 'text-emerald-400' : event.status === 'warning' ? 'text-amber-400' : 'text-slate-400'}`}>
@@ -201,11 +215,11 @@ function ClientProfile({ client, onClose, onRecordPayment }: { client: Client; o
           <div>
             <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Payment History</h3>
             {clientPayments.length === 0 ? (
-              <div className="text-center py-8 text-slate-600 text-sm">No payments recorded yet</div>
+              <div className="text-center py-6 text-slate-600 text-sm glass rounded-xl">No payments recorded yet</div>
             ) : (
               <div className="space-y-2">
                 {clientPayments.map(p => (
-                  <div key={p.id} className="glass p-3 flex items-center justify-between text-sm">
+                  <div key={p.id} className="glass p-3 flex items-center justify-between text-sm rounded-lg border border-white/[0.05]">
                     <div>
                       <div className="text-slate-200 font-medium">
                         {p.paymentType === 'website_onetime' ? 'Website Payment' : p.paymentType === 'website_maintenance' ? 'Maintenance' : 'Social Media'}
@@ -227,11 +241,19 @@ function ClientProfile({ client, onClose, onRecordPayment }: { client: Client; o
             <button onClick={onRecordPayment} className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium rounded-lg transition-colors">
               + Add Payment
             </button>
-            <button className="flex-1 py-2.5 bg-white/[0.06] hover:bg-white/[0.1] text-slate-300 text-sm font-medium rounded-lg transition-colors">
-              Send Reminder
+            <button onClick={() => { onEdit(client); onClose(); }} className="px-4 py-2.5 bg-white/[0.08] hover:bg-white/[0.15] text-slate-200 text-sm font-medium rounded-lg transition-colors border border-white/[0.08]">
+              ✏ Edit Client
             </button>
-            <button className="px-4 py-2.5 bg-white/[0.06] hover:bg-white/[0.1] text-slate-300 text-sm font-medium rounded-lg transition-colors">
-              Edit
+            <button
+              onClick={() => {
+                if (confirm(`Are you sure you want to delete client "${client.name}"?`)) {
+                  onDelete(client.id);
+                  onClose();
+                }
+              }}
+              className="px-4 py-2.5 bg-red-600/20 hover:bg-red-600/40 text-red-300 text-sm font-medium rounded-lg transition-colors border border-red-500/20"
+            >
+              Delete Client
             </button>
           </div>
         </div>
@@ -243,9 +265,11 @@ function ClientProfile({ client, onClose, onRecordPayment }: { client: Client; o
 interface Props {
   onAddClient: () => void;
   onRecordPayment: () => void;
+  onEditClient?: (client: Client) => void;
 }
 
-export default function ClientsPage({ onAddClient, onRecordPayment }: Props) {
+export default function ClientsPage({ onAddClient, onRecordPayment, onEditClient }: Props) {
+  const { clients, deleteClient } = usePaymentData();
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Client | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -266,11 +290,11 @@ export default function ClientsPage({ onAddClient, onRecordPayment }: Props) {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-white">Clients</h1>
-          <p className="text-sm text-slate-500 mt-0.5">{clients.length} clients total</p>
+          <p className="text-sm text-slate-500 mt-0.5">{clients.length} clients registered in Realtime DB</p>
         </div>
         <button
           onClick={onAddClient}
-          className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium rounded-lg transition-colors"
+          className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium rounded-lg transition-colors shadow-lg shadow-violet-600/20"
         >
           + Add Client
         </button>
@@ -283,7 +307,7 @@ export default function ClientsPage({ onAddClient, onRecordPayment }: Props) {
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search clients..."
+            placeholder="Search clients by name, business, phone..."
             className="w-full pl-9 pr-4 py-2 bg-white/[0.05] border border-white/[0.08] rounded-lg text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-violet-500/50"
           />
         </div>
@@ -301,7 +325,7 @@ export default function ClientsPage({ onAddClient, onRecordPayment }: Props) {
       </div>
 
       {/* Client Table */}
-      <div className="glass overflow-hidden">
+      <div className="glass overflow-hidden rounded-xl border border-white/[0.06]">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-white/[0.06]">
@@ -316,10 +340,10 @@ export default function ClientsPage({ onAddClient, onRecordPayment }: Props) {
                 <td className="px-5 py-4">
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-purple-700 flex items-center justify-center text-white text-xs font-bold shrink-0">
-                      {c.name.charAt(0)}
+                      {c.name.charAt(0).toUpperCase()}
                     </div>
                     <div>
-                      <div className="font-medium text-white">{c.name}</div>
+                      <div className="font-medium text-white">{getClientDisplayName(c.name, c.business)}</div>
                       <div className="text-xs text-slate-500">{c.business}</div>
                     </div>
                   </div>
@@ -332,19 +356,42 @@ export default function ClientsPage({ onAddClient, onRecordPayment }: Props) {
                   {c.websiteDueDate ? formatDate(c.websiteDueDate) : c.socialNextDue ? formatDate(c.socialNextDue) : '—'}
                 </td>
                 <td className="px-5 py-4"><StatusBadge status={c.overallStatus} size="sm" /></td>
-                <td className="px-5 py-4">
-                  <button
-                    onClick={e => { e.stopPropagation(); setSelected(c); }}
-                    className="text-xs px-3 py-1 bg-white/[0.06] hover:bg-white/[0.1] text-slate-300 rounded-md transition-colors"
-                  >
-                    View →
-                  </button>
+                <td className="px-5 py-4 text-right">
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      onClick={e => { e.stopPropagation(); setSelected(c); }}
+                      className="text-xs px-3 py-1 bg-white/[0.06] hover:bg-white/[0.1] text-slate-300 rounded-md transition-colors"
+                    >
+                      View →
+                    </button>
+                    <button
+                      onClick={e => { e.stopPropagation(); onEditClient && onEditClient(c); }}
+                      className="text-xs px-2.5 py-1 bg-white/[0.08] hover:bg-white/[0.15] text-slate-200 border border-white/[0.1] rounded-md transition-colors font-medium"
+                      title="Edit Client Details"
+                    >
+                      ✏ Edit
+                    </button>
+                    <button
+                      onClick={e => {
+                        e.stopPropagation();
+                        if (confirm(`Are you sure you want to delete client "${c.name}"?`)) {
+                          deleteClient(c.id);
+                        }
+                      }}
+                      className="text-xs px-2.5 py-1 bg-red-500/15 hover:bg-red-500/30 text-red-300 border border-red-500/30 rounded-md transition-colors"
+                      title="Delete Client"
+                    >
+                      🗑 Delete
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-5 py-12 text-center text-slate-600">No clients match your filters</td>
+                <td colSpan={8} className="px-5 py-12 text-center text-slate-600">
+                  {clients.length === 0 ? 'No clients found in Supabase DB. Click "+ Add Client" to create your first client.' : 'No clients match your filter criteria.'}
+                </td>
               </tr>
             )}
           </tbody>
@@ -352,7 +399,13 @@ export default function ClientsPage({ onAddClient, onRecordPayment }: Props) {
       </div>
 
       {selected && (
-        <ClientProfile client={selected} onClose={() => setSelected(null)} onRecordPayment={onRecordPayment} />
+        <ClientProfile
+          client={selected}
+          onClose={() => setSelected(null)}
+          onRecordPayment={onRecordPayment}
+          onEdit={(c) => onEditClient && onEditClient(c)}
+          onDelete={deleteClient}
+        />
       )}
     </div>
   );
