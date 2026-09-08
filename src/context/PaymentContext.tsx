@@ -28,12 +28,51 @@ const PaymentContext = createContext<PaymentContextType | undefined>(undefined);
 const LOCAL_CLIENTS_KEY = 'fc_payment_hub_clients_v3';
 const LOCAL_PAYMENTS_KEY = 'fc_payment_hub_payments_v3';
 
+function migrateClients(list: Client[]): Client[] {
+  let changed = false;
+  const migrated = list.map(c => {
+    if (c.id === 'c-web-advance' || c.name === 'Website Client (Advance)') {
+      changed = true;
+      return {
+        ...c,
+        name: 'Navya Bridals',
+        business: 'Navya Bridals',
+        websiteProject: 'E-Commerce Site',
+      };
+    }
+    return c;
+  });
+  if (changed) {
+    saveLocalClients(migrated);
+  }
+  return migrated;
+}
+
+function migratePayments(list: Payment[]): Payment[] {
+  let changed = false;
+  const migrated = list.map(p => {
+    if (p.clientId === 'c-web-advance' || p.clientName === 'Website Client (Advance)') {
+      changed = true;
+      return {
+        ...p,
+        clientName: 'Navya Bridals',
+        business: 'Navya Bridals',
+      };
+    }
+    return p;
+  });
+  if (changed) {
+    saveLocalPayments(migrated);
+  }
+  return migrated;
+}
+
 function loadLocalClients(): Client[] {
   try {
     const raw = localStorage.getItem(LOCAL_CLIENTS_KEY);
     if (raw) {
       const parsed: Client[] = JSON.parse(raw);
-      if (parsed.length > 0) return parsed;
+      if (parsed.length > 0) return migrateClients(parsed);
     }
   } catch (e) {
     console.error('Error loading local clients:', e);
@@ -91,7 +130,7 @@ function loadLocalClients(): Client[] {
         const recovered = Array.from(clientMap.values());
         if (recovered.length > 0) {
           saveLocalClients(recovered);
-          return recovered;
+          return migrateClients(recovered);
         }
       }
     }
@@ -116,7 +155,7 @@ function loadLocalPayments(): Payment[] {
     const raw = localStorage.getItem(LOCAL_PAYMENTS_KEY);
     if (raw) {
       const parsed: Payment[] = JSON.parse(raw);
-      if (parsed.length > 0) return parsed;
+      if (parsed.length > 0) return migratePayments(parsed);
     }
   } catch (e) {
     console.error('Error loading local payments:', e);
@@ -864,23 +903,54 @@ export function PaymentProvider({ children }: { children: React.ReactNode }) {
       return updated;
     });
 
-    if (updatedFields.name || updatedFields.business) {
-      setPayments(prev => {
-        const updated = prev.map(p => {
-          if (p.clientId === id) {
-            const clientName = getClientDisplayName(updatedFields.name || p.clientName, updatedFields.business || p.business);
-            return {
-              ...p,
-              clientName,
-              business: updatedFields.business || p.business,
-            };
+    setPayments(prev => {
+      const updated = prev.map(p => {
+        if (p.clientId === id) {
+          const newName = updatedFields.name || p.clientName;
+          const newBusiness = updatedFields.business || p.business;
+          const clientName = getClientDisplayName(newName, newBusiness);
+
+          let newTotal = p.totalAmount;
+          let newReceived = p.received;
+          let newDueDate = p.dueDate;
+
+          if (p.paymentType === 'website_onetime' && updatedFields.websiteTotal !== undefined) {
+            newTotal = updatedFields.websiteTotal;
+            if (updatedFields.websiteAdvance !== undefined) {
+              newReceived = updatedFields.websiteAdvance;
+            }
+            if (updatedFields.websiteDueDate !== undefined) {
+              newDueDate = updatedFields.websiteDueDate;
+            }
+          } else if (p.paymentType === 'social_media' && updatedFields.socialAmount !== undefined) {
+            newTotal = updatedFields.socialAmount;
+            if (updatedFields.socialAdvance !== undefined) {
+              newReceived = updatedFields.socialAdvance;
+            }
+            if (updatedFields.socialNextDue !== undefined) {
+              newDueDate = updatedFields.socialNextDue;
+            }
           }
-          return p;
-        });
-        saveLocalPayments(updated);
-        return updated;
+
+          const remaining = Math.max(0, newTotal - newReceived);
+          const status: PaymentStatus = remaining === 0 && newTotal > 0 ? 'paid' : newReceived > 0 ? 'partially_paid' : 'due';
+
+          return {
+            ...p,
+            clientName,
+            business: newBusiness,
+            totalAmount: newTotal,
+            received: newReceived,
+            remaining,
+            dueDate: newDueDate,
+            status,
+          };
+        }
+        return p;
       });
-    }
+      saveLocalPayments(updated);
+      return updated;
+    });
 
     try {
       if (updatedClientObj) {

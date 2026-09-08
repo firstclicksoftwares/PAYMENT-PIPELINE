@@ -70,6 +70,13 @@ function WebsitePipeline({ onRecordPayment, onEditClient }: Props) {
                             + Record Payment
                           </button>
                           <button
+                            onClick={() => onEditClient && onEditClient(c)}
+                            className="px-2 py-1 text-[11px] bg-white/[0.08] hover:bg-white/[0.15] text-slate-200 border border-white/[0.1] rounded-lg transition-colors font-medium"
+                            title="Edit Client / Project Details"
+                          >
+                            ✏ Edit
+                          </button>
+                          <button
                             onClick={() => {
                               if (confirm(`Delete client "${c.name}"?`)) {
                                 deleteClient(c.id);
@@ -140,6 +147,13 @@ function WebsitePipeline({ onRecordPayment, onEditClient }: Props) {
                           className="text-xs px-3 py-1.5 bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors font-medium"
                         >
                           Record Payment
+                        </button>
+                        <button
+                          onClick={() => onEditClient && onEditClient(c)}
+                          className="text-xs px-2.5 py-1.5 bg-white/[0.08] hover:bg-white/[0.15] text-slate-200 border border-white/[0.1] rounded-lg transition-colors font-medium"
+                          title="Edit Client / Project Details"
+                        >
+                          ✏ Edit
                         </button>
                         <button
                           onClick={() => {
@@ -255,6 +269,13 @@ function SocialMediaPipeline({ onRecordPayment, onEditClient }: Props) {
                           className="px-3.5 py-1.5 text-xs font-semibold bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg transition-all shadow-md shadow-cyan-600/20"
                         >
                           Record Retainer
+                        </button>
+                        <button
+                          onClick={() => onEditClient && onEditClient(c)}
+                          className="px-2.5 py-1.5 text-xs font-semibold bg-white/[0.08] hover:bg-white/[0.15] text-slate-200 border border-white/[0.1] rounded-lg transition-all font-medium"
+                          title="Edit Client Details"
+                        >
+                          ✏ Edit
                         </button>
                         <button
                           onClick={() => {
